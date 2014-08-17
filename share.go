@@ -56,6 +56,18 @@ func (s *Share) AddClient(client *Client) {
 
 	if !contains {
 		s.Clients[client.Name] = client
+	} else {
+		LogObj.Println("Tried to add already connected client ", client.Name)
+	}
+}
+
+func (s *Share) RemoveClient(client *Client) {
+	_, contains := s.Clients[client.Name]
+
+	if !contains {
+		LogObj.Println("Unregistered client for share tried to disconnect ", client.Name)
+	} else {
+		delete(s.Clients, client.Name)
 	}
 }
 
@@ -118,10 +130,10 @@ func (s *Share) WriteChunk(file string, partnum int64, part []byte) (err error) 
 	}
 
 	if int64(len(part)) != FileChunkSize {
-		LogObj.Println("Invalid chunk size ", len(part), " in ", file)
+		LogObj.Println("Invalid chunk size ", len(part), " in ", file, ". Last chunk?")
 	}
 
-	_, err = fd.Seek(partnum * FileChunkSize, 0)
+	_, err = fd.Seek(partnum*FileChunkSize, 0)
 
 	fd.Write(part)
 
@@ -147,7 +159,7 @@ func (s *Share) ReadChunk(file string, partnum int64) (chunk []byte, err error) 
 
 	chunk = make([]byte, FileChunkSize)
 
-	n, err := fd.ReadAt(chunk, FileChunkSize * partnum)
+	n, err := fd.ReadAt(chunk, FileChunkSize*partnum)
 
 	if err != nil {
 		return
@@ -267,6 +279,10 @@ func (s *Share) Events() chan fsnotify.Event {
 
 func (s *Share) Errors() chan error {
 	return s.Watcher.Errors
+}
+
+func (s *Share) Close() {
+	s.Watcher.Close()
 }
 
 func (s *Share) Watch(dir string) error {

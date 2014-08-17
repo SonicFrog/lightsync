@@ -43,15 +43,10 @@ func (sh *ShareHandler) HandleLocal() {
 }
 
 func (sh *ShareHandler) Handle(msg Message) (err error) {
-
 	switch msg.(type) {
 	case FileRemoveMessage:
 	case DirectoryRemoveMessage:
 		sh.Remove(msg.Name())
-		break
-
-	case FileUpdatedMessage:
-		//Send FilePartRequest for each part of the file
 		break
 
 	case FileCreatedMessage:
@@ -59,17 +54,20 @@ func (sh *ShareHandler) Handle(msg Message) (err error) {
 		break
 
 	case FileHashMessage:
+	case FileUpdatedMessage:
 		sh.CheckHash(msg.Name(), msg.Payload())
 		break
 
 	case ShareACKMessage:
-
+		sh.AddClient(msg.Sender())
 		break
 
 	case ShareLeaveMessage:
+		sh.RemoveClient(msg.Sender())
 		break
 
 	case DirectoryCreateMessage:
+		sh.CreateDir(msg.Name())
 		break
 
 	default:
