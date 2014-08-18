@@ -4,18 +4,54 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"time"
 )
 
 type Message interface {
 	Name() string
+	Sender() *Client
 	Share() string
 	Payload() []byte
 	WriteTo(write io.Writer) error
 }
 
+type FileMessage interface {
+	FileName() string
+	Hash() []byte
+	Time() time.Time
+}
+
+type ShareMessage interface {
+	ShareName() string
+	Leaving() bool
+}
+
+type Handler interface {
+	Handle(msg Message) error
+}
+
 type BaseAttribs struct {
+	senderRef  *Client
 	entityName string
 	sender     string
+}
+
+type ShareAttribs struct {
+	BaseAttribs
+}
+
+type FileAttribs struct {
+	BaseAttribs
+	fName string
+	hash  []byte
+	time  time.Time
+}
+
+type PeerAttribs struct {
+	cert    []byte
+	name    string
+	address string
+	version string
 }
 
 type ClientHelloMessage struct {
@@ -35,55 +71,51 @@ type ServerKeyMessage struct {
 }
 
 type ShareDiscoverMessage struct {
-	BaseAttribs
+	ShareAttribs
 }
 
 type ShareACKMessage struct {
-	BaseAttribs
+	ShareAttribs
 }
 
 type ShareLeaveMessage struct {
-	BaseAttribs
+	ShareAttribs
 }
 
 type ShareLastModMessage struct {
-	BaseAttribs
+	ShareAttribs
 }
 
 type FileRemoveMessage struct {
-	BaseAttribs
+	FileAttribs
 }
 
 type FileUpdatedMessage struct {
-	BaseAttribs
+	FileAttribs
 }
 
 type FileCreatedMessage struct {
-	BaseAttribs
+	FileAttribs
 }
 
 type FileHashMessage struct {
-	BaseAttribs
+	FileAttribs
 }
 
 type FilePartRequest struct {
-	BaseAttribs
+	FileAttribs
 }
 
 type FilePartTransfer struct {
-	BaseAttribs
+	FileAttribs
 }
 
 type DirectoryCreateMessage struct {
-	BaseAttribs
-}
-
-type DirectoryRemoveMessage struct {
-	BaseAttribs
+	FileAttribs
 }
 
 type DirectoryDiffMessage struct {
-	BaseAttribs
+	FileAttribs
 }
 
 type PeerAnnounceMessage struct {
@@ -193,7 +225,7 @@ func ReadMessage(input io.Reader) (msg Message, err error) {
 
 	if err != nil || read != PayloadLength {
 		if read != PayloadLength {
-			err = errors.New("Invalid message sent!")
+			err = errors.New("Invalid message received!")
 		}
 		return
 	}
@@ -207,6 +239,10 @@ func (msg BaseAttribs) WriteTo(writer io.Writer) (err error) {
 	return
 }
 
+func (msg BaseAttribs) Sender() *Client {
+	return msg.senderRef
+}
+
 func (msg BaseAttribs) Name() string {
 	return msg.entityName
 }
@@ -217,10 +253,6 @@ func (msg BaseAttribs) Payload() []byte {
 
 func (msg BaseAttribs) Share() string {
 	return ""
-}
-
-func (msg BaseAttribs) Sender() string {
-	return msg.sender
 }
 
 func (msg ClientHelloMessage) WriteTo(writer io.Writer) (err error) {
@@ -255,6 +287,18 @@ func (msg ShareLastModMessage) WriteTo(writer io.Writer) (err error) {
 	return
 }
 
+func (msg FileAttribs) Hash() []byte {
+	return make([]byte, 0)
+}
+
+func (msg FileAttribs) Time() time.Time {
+	return msg.time
+}
+
+func (msg FileAttribs) FileName() string {
+	return msg.fName
+}
+
 func (msg FileRemoveMessage) WriteTo(writer io.Writer) (err error) {
 	return
 }
@@ -280,10 +324,6 @@ func (msg FilePartTransfer) WriteTo(writer io.Writer) (err error) {
 }
 
 func (msg DirectoryCreateMessage) WriteTo(writer io.Writer) (err error) {
-	return
-}
-
-func (msg DirectoryRemoveMessage) WriteTo(writer io.Writer) (err error) {
 	return
 }
 
