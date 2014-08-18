@@ -1,21 +1,20 @@
 package main
 
 import (
-	"crypto/rsa"
 	"errors"
 	"fmt"
-	"math/big"
+	"log"
 	"net"
 	"os"
-	"log"
 	"os/signal"
+	"sync"
 )
 
 type Client struct {
-	InputChannel  chan Message
-	OutputChannel chan Message
+	inputCh  chan Message
+	outputCh chan Message
 	Name          string
-	Key           rsa.PublicKey
+	ConnMut       sync.Mutex
 }
 
 var Config Configuration
@@ -24,6 +23,8 @@ var Clients map[string]*Client
 var Running = true
 
 var LogObj *log.Logger
+
+var Control chan int
 
 func main() {
 	LogObj = log.New(os.Stdout, "lightsync", log.Ltime)
@@ -57,7 +58,7 @@ func main() {
 			break
 		}
 
-		name, key, err := NetworkClientHandshake(conn)
+		name, err := ClientHandshake(conn)
 
 		if err != nil {
 			fmt.Printf("Error while handshaking with %s:\n",
@@ -66,13 +67,9 @@ func main() {
 			continue
 		}
 
-		client := NewClientHandler(name, conn, key)
+		client := NewClientHandler(name, conn)
 
 		Clients[name] = &client
-	}
-
-	for _, c := range Clients {
-		c.WriteMessage(CloseConnectionMessage{})
 	}
 }
 
@@ -84,31 +81,31 @@ func SignalHandler(signals chan os.Signal, ln *net.TCPListener) {
 		case os.Interrupt:
 			fmt.Println("Shutting down...")
 			ln.Close()
+			Control <- 0
 		}
 	}
 }
 
-func NewClientHandler(name string, conn *net.TCPConn, key rsa.PublicKey) Client {
+func NewClientHandler(name string, conn *net.TCPConn) Client {
 	input, output := make(chan Message, 10), make(chan Message, 10)
+	c := Client{input, output, name, sync.Mutex{}}
 
-	go NetworkClientWriter(input, conn)
-	go NetworkClientReader(output, conn)
+	go c.ClientWriter(input, conn)
+	go c.ClientReader(output, conn)
 
-	return Client{input, output, name, key}
+	return c
 }
 
 func (c *Client) WriteMessage(msg Message) {
-	c.InputChannel <- msg
+	c.inputCh <- msg
 }
 
 func (c *Client) ReadMessage(msg Message) Message {
-	return <-c.OutputChannel
+	return <-c.outputCh
 }
 
-func NetworkClientHandshake(conn *net.TCPConn) (name string, key rsa.PublicKey, err error) {
+func ClientHandshake(conn *net.TCPConn) (name string, err error) {
 	var msg Message
-
-	key = rsa.PublicKey{N: big.NewInt(0), E: 0}
 
 	msg = BaseAttribs{sender: Config.NodeName, entityName: Config.NodeName}
 
@@ -133,8 +130,6 @@ func NetworkClientHandshake(conn *net.TCPConn) (name string, key rsa.PublicKey, 
 		return
 	}
 
-	msg, err = ReadMessage(conn)
-
 	if err != nil {
 		fmt.Printf("Error while handshaking with %s:\n",
 			conn.RemoteAddr().String())
@@ -146,22 +141,27 @@ func NetworkClientHandshake(conn *net.TCPConn) (name string, key rsa.PublicKey, 
 	return
 }
 
-func NetworkClientWriter(input chan Message, conn *net.TCPConn) {
-	for Running {
-		msg := <-input
-		err := msg.WriteTo(conn)
+func (c *Client) ClientWriter(input chan Message, conn *net.TCPConn) {
+	for {
+		select {
+		case msg := <-input:
+			err := msg.WriteTo(conn)
 
-		if err != nil {
-			fmt.Printf("Error while writing to client %s:\n",
-				conn.RemoteAddr().String())
-			return
+			if err != nil {
+				fmt.Printf("Error while writing to client %s:\n",
+					conn.RemoteAddr().String())
+				return
+			}
+
+		case <-Control:
+			LogObj.Println("Writer stopping for client ", c.Name)
+			c.WriteMessage(CloseConnectionMessage{})
 		}
 	}
 }
 
-func NetworkClientReader(output chan Message, conn *net.TCPConn) {
-	for Running {
-
+func (c *Client) ClientReader(output chan Message, conn *net.TCPConn) {
+	for {
 		msg, err := ReadMessage(conn)
 
 		if err != nil {
