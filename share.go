@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"fsnotify"
+	"sync"
 	"io"
 	"io/ioutil"
 	"os"
@@ -23,6 +24,8 @@ type Share struct {
 	Watcher *fsnotify.Watcher
 
 	Database *sql.DB
+
+	clientMutex *sync.Mutex
 }
 
 const (
@@ -44,7 +47,7 @@ func NewShare(name, path string) (s *Share, err error) {
 		return
 	}
 
-	s = &Share{name, make(map[string]*Client), path, wat, db}
+	s = &Share{name, make(map[string]*Client), path, wat, db, &sync.Mutex{}}
 
 	s.Watch(path)
 
@@ -52,6 +55,9 @@ func NewShare(name, path string) (s *Share, err error) {
 }
 
 func (s *Share) AddClient(client *Client) {
+	s.clientMutex.Lock()
+	defer s.clientMutex.Unlock()
+
 	_, contains := s.Clients[client.Name]
 
 	if !contains {
@@ -62,6 +68,9 @@ func (s *Share) AddClient(client *Client) {
 }
 
 func (s *Share) RemoveClient(client *Client) {
+	s.clientMutex.Lock()
+	defer s.clientMutex.Unlock()
+
 	_, contains := s.Clients[client.Name]
 
 	if !contains {
