@@ -13,11 +13,11 @@ import (
 type Client struct {
 	inputCh  chan Message
 	outputCh chan Message
-	Name          string
-	ConnMut       sync.Mutex
+	conn     net.Conn
+	Name     string
 }
 
-var Config Configuration
+var Config ConfigurationObject
 var Shares map[string]Share
 var Clients map[string]*Client
 var Running = true
@@ -86,9 +86,9 @@ func SignalHandler(signals chan os.Signal, ln *net.TCPListener) {
 	}
 }
 
-func NewClientHandler(name string, conn *net.TCPConn) Client {
+func NewClientHandler(name string, conn net.Conn) Client {
 	input, output := make(chan Message, 10), make(chan Message, 10)
-	c := Client{input, output, name, sync.Mutex{}}
+	c := Client{input, output, conn, name}
 
 	go c.ClientWriter(input, conn)
 	go c.ClientReader(output, conn)
@@ -104,10 +104,10 @@ func (c *Client) ReadMessage(msg Message) Message {
 	return <-c.outputCh
 }
 
-func ClientHandshake(conn *net.TCPConn) (name string, err error) {
+func ClientHandshake(conn net.Conn) (name string, err error) {
 	var msg Message
 
-	msg = BaseAttribs{sender: Config.NodeName, entityName: Config.NodeName}
+	msg = BaseAttribs{sender: Config.NodeName(), entityName: Config.NodeName()}
 
 	msg, err = ReadMessage(conn)
 
@@ -141,7 +141,7 @@ func ClientHandshake(conn *net.TCPConn) (name string, err error) {
 	return
 }
 
-func (c *Client) ClientWriter(input chan Message, conn *net.TCPConn) {
+func (c *Client) ClientWriter(input <-chan Message, conn net.Conn) {
 	for {
 		select {
 		case msg := <-input:
@@ -156,11 +156,12 @@ func (c *Client) ClientWriter(input chan Message, conn *net.TCPConn) {
 		case <-Control:
 			LogObj.Println("Writer stopping for client ", c.Name)
 			c.WriteMessage(CloseConnectionMessage{})
+			c.conn.Close()
 		}
 	}
 }
 
-func (c *Client) ClientReader(output chan Message, conn *net.TCPConn) {
+func (c *Client) ClientReader(output chan<- Message, conn net.Conn) {
 	for {
 		msg, err := ReadMessage(conn)
 
