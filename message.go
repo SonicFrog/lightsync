@@ -15,6 +15,10 @@ type Message interface {
 	WriteTo(write io.Writer) error
 }
 
+type Readable interface {
+	ReadFrom(reader io.Reader) error
+}
+
 type FileMessage interface {
 	FileName() string
 	Hash() []byte
