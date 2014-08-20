@@ -1,0 +1,41 @@
+/**
+ * Protocol description for the lightsync protocol
+ * Authentication is done using TLS it is not included in the protobuf
+ * protocol!
+ **/
+
+package lightsync;
+
+enum ShareAction {
+    ENTERING = 0;
+    LEAVING = 1;
+}
+
+enum FileAction {
+    CREATED = 0;
+    UPDATED = 1;
+    REMOVED = 2;
+}
+
+message ShareMessage {
+    required string share_name = 1;
+
+    required ShareAction action = 2;
+}
+
+message PeerMessage {
+    required string peer_name = 1; //Contains the SHA1 hash of the peer's public key
+    required string address = 2; //IP address as a string
+    required string port = 3; //Port as a string
+
+    repeated string shares = 4; //A list of shares for this peer
+}
+
+message FileMessage {
+    required string filename = 1;
+    required bool folder = 2;
+    required FileAction action = 3;
+
+    optional bytes hash = 4;
+
+}
