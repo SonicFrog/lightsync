@@ -1,7 +1,7 @@
 package main
 
 import (
-	"errors"
+	"crypto/rsa"
 	"fmt"
 	"log"
 	"net"
@@ -10,10 +10,12 @@ import (
 )
 
 type Client struct {
-	inputCh  chan Message
-	outputCh chan Message
-	conn     net.Conn
-	Name     string
+	inputCh   chan Message
+	outputCh  chan Message
+	controlCh chan int
+	key       *rsa.PublicKey
+	conn      net.Conn
+	name      string
 }
 
 var Config ConfigurationObject
@@ -23,7 +25,9 @@ var Running = true
 
 var LogObj *log.Logger
 
-var Control chan int
+var FileMessageHandlers []MessageHandler
+var PeerMessageHandlers []MessageHandler
+var ShareMessageHandlers []MessageHandler
 
 func main() {
 	LogObj = log.New(os.Stdout, "lightsync", log.Ltime)
@@ -78,16 +82,21 @@ func SignalHandler(signals chan os.Signal, ln *net.TCPListener) {
 
 		switch sig {
 		case os.Interrupt:
-			fmt.Println("Shutting down...")
+			LogObj.Println("Shutting down...")
 			ln.Close()
-			Control <- 0
 		}
 	}
 }
 
 func NewClientHandler(name string, conn net.Conn) Client {
 	input, output := make(chan Message, 10), make(chan Message, 10)
-	c := Client{input, output, conn, name}
+
+	c := Client{
+		inputCh:  input,
+		outputCh: output,
+		conn:     conn,
+		name:     name,
+	}
 
 	go c.ClientWriter(input, conn)
 	go c.ClientReader(output, conn)
@@ -103,23 +112,23 @@ func (c *Client) ReadMessage(msg Message) Message {
 	return <-c.outputCh
 }
 
+func (c *Client) Name() string {
+	return c.name
+}
+
+func (c *Client) Stop() {
+	c.controlCh <- 0
+}
+
 func ClientHandshake(conn net.Conn) (name string, err error) {
 	var msg Message
 
-	msg = BaseAttribs{sender: Config.NodeName(), entityName: Config.NodeName()}
+
 
 	msg, err = ReadMessage(conn)
 
 	switch msg.(type) {
-	case ClientHelloMessage:
-		break
 
-	default:
-		msg = ProtocolViolationMessage{}
-		msg.WriteTo(conn)
-		err = errors.New("Protocol violation from " + conn.RemoteAddr().String())
-		conn.Close()
-		return
 	}
 
 	if err != nil {
@@ -140,6 +149,7 @@ func ClientHandshake(conn net.Conn) (name string, err error) {
 	return
 }
 
+
 func (c *Client) ClientWriter(input <-chan Message, conn net.Conn) {
 	for {
 		select {
@@ -152,9 +162,8 @@ func (c *Client) ClientWriter(input <-chan Message, conn net.Conn) {
 				return
 			}
 
-		case <-Control:
+		case <-c.controlCh:
 			LogObj.Println("Writer stopping for client ", c.Name)
-			c.WriteMessage(CloseConnectionMessage{})
 			c.conn.Close()
 		}
 	}
@@ -164,8 +173,10 @@ func (c *Client) ClientReader(output chan<- Message, conn net.Conn) {
 	for {
 		msg, err := ReadMessage(conn)
 
+		msg.SetSender(c)
+
 		if err != nil {
-			fmt.Printf("Error while reading from client %s\n",
+			LogObj.Printf("Error while reading from client %s\n",
 				conn.RemoteAddr().String())
 			conn.Close()
 			return

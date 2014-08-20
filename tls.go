@@ -27,6 +27,15 @@ const (
 	DefaultKeyLength int = 2048
 )
 
+type ClientAccepter interface {
+	AcceptConnection(conn net.Conn) error
+	AuthorizeClient(client Client, clientAdder func(c *Client)) error
+}
+
+type TLSClientAccepter struct {
+	listener net.Listener
+}
+
 func DefaultTLSConfig() (cfg *tls.Config, err error) {
 	return TLSConfig(DefaultCertPath, DefaultKeyPath)
 }
@@ -67,7 +76,7 @@ func KeyFingerprint(pub *rsa.PublicKey) (fp string) {
 	return
 }
 
-func TLSListener(config *tls.Config) (err error) {
+func TLSListener(config *tls.Config, accepter *ClientAccepter) (err error) {
 	ln, err := tls.Listen("tcp", "localhost:12000", config)
 
 	if err != nil {
@@ -104,13 +113,29 @@ func TLSClientAcceptor(conn net.Conn) (err error) {
 	rsaPeerKey, ok := peerKey.(*rsa.PublicKey)
 
 	if !ok {
-		//TODO: Change this to clean handling
-		panic("Remote peer is not using RSA!!")
+		LogObj.Println("Peer at", conn.RemoteAddr(), "is not using RSA")
+		return errors.New("Peer not using RSA!")
 	}
 
 	LogObj.Println("Connection from peer", KeyFingerprint(rsaPeerKey))
 
 	//TODO: Validate peer against authorized public keys fingerprints
+
+	return
+}
+
+func (t *TLSClientAccepter) AuthorizeClient(client *Client,
+	clientAdder func(*Client)) (err error) {
+
+	var accepted bool = false
+
+	defer func() {
+		if accepted {
+			clientAdder(client)
+		}
+	}()
+
+
 
 	return
 }

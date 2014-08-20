@@ -1,22 +1,26 @@
 package main
 
 import (
-	"fmt"
+	"lightsync/proto"
 )
 
 type ShareHandler struct {
 	Share
 	RequestChannel chan Message
-	isActive bool
-}
-
-type MessageHandler interface {
-	Handle(Message) error
+	ControlChannel chan int
+	isActive       bool
 }
 
 func NewShareHandler(share Share, out chan Message) (sh *ShareHandler) {
-	sh = &ShareHandler{share, out, true}
+	sh = &ShareHandler{
+		Share:          share,
+		RequestChannel: out,
+		isActive:       true,
+		ControlChannel: make(chan int),
+	}
+
 	go sh.HandleLocal()
+
 	return
 }
 
@@ -24,21 +28,25 @@ func (sh *ShareHandler) Active() bool {
 	return sh.isActive
 }
 
+func (sh *ShareHandler) HandOver(msg Message) {
+	sh.RequestChannel <- msg
+}
+
 func (sh *ShareHandler) HandleLocal() {
 	defer sh.Share.Watcher.Close()
+
 	for {
 		select {
-		case evt := <- sh.Events() :
+		case evt := <-sh.Events():
 			//Event
-			fmt.Println("event: ", evt)
+			LogObj.Println("event: ", evt)
 			break
 
-		case err := <- sh.Errors() :
+		case err := <-sh.Errors():
 			//Error
-			fmt.Println("error: ", err)
+			LogObj.Println("error: ", err)
 
-
-		case <- Control :
+		case <-sh.ControlChannel:
 			LogObj.Println("ShareHandler ", sh.Name, " stopping!")
 			break
 		}
@@ -46,78 +54,59 @@ func (sh *ShareHandler) HandleLocal() {
 	}
 }
 
-func (sh *ShareHandler) Handle(msg Message) (err error) {
-	switch msg.(type) {
-	case FileRemoveMessage:
-		msg, ok := msg.(FileRemoveMessage)
+func (sh *ShareHandler) HandleFile(msg *FileMessageWrapper)  {
+	switch msg.GetAction() {
+	case light.FileAction_REMOVED:
+		sh.Remove(msg.GetFilename())
 
-		if !ok {
-			panic("Invalid message type while handling message in share")
+	case light.FileAction_CREATED:
+		if msg.GetFolder() {
+			sh.CreateDir(msg.GetFilename())
+		} else {
+			sh.CreateFile(msg.GetFilename())
 		}
 
-		sh.Remove(msg.Name())
-		break
 
-	case FileCreatedMessage:
-		msg, ok := msg.(FileCreatedMessage)
-
-		if !ok {
-			panic("Invalid message type while handling message in share")
-		}
-
-		sh.CreateFile(msg.FileName())
-		break
-
-	case FileHashMessage:
-		msg, ok := msg.(FileHashMessage)
-		if !ok {
-			panic("Invalid message type while handling message!")
-		}
-
-		if msg.Share() != sh.Name {
-
-		}
-		sh.CheckHash(msg.FileName(), msg.Hash())
-
-
-	case ShareACKMessage:
-		msg, ok := msg.(ShareACKMessage)
-		if !ok {
-			panic("Fatal while handling message in share " + sh.Name)
-		}
-		if msg.Share() != sh.Name {
-			panic("Share "+sh.Name+" had to handle a message for "+msg.Share())
-		}
-		sh.AddClient(msg.Sender())
-		break
-
-	case ShareLeaveMessage:
-		msg, ok := msg.(ShareLeaveMessage)
-		if !ok {
-			panic("Wow!")
-		}
-
-		if msg.Share() != sh.Name {
-			panic("Share "+sh.Name+ " had to handle a message for "+msg.Share())
-		}
-		sh.RemoveClient(msg.Sender())
-
-	case DirectoryCreateMessage:
-		msg, ok := msg.(DirectoryCreateMessage)
-		if !ok {
-			panic("Invalid message type while handling message!")
-		}
-		if msg.Share() != sh.Name {
-			panic("ShareHandler received a message for another share!")
-		}
-		sh.CreateDir(msg.Name())
-
+	case light.FileAction_UPDATED:
+		sh.CheckHash(msg.GetFilename(), msg.GetHash())
 
 	default:
-		panic("Invalid message received in ShareHandler!!")
+		panic("Invalid enum value in FileMessage!")
 	}
+}
 
-	return
+func (sh *ShareHandler) HandleShare(msg *ShareMessageWrapper) {
+	switch msg.GetAction() {
+	case light.ShareAction_LEAVING:
+		sh.RemoveClient(msg.Sender())
+
+	case light.ShareAction_ENTERING:
+		sh.AddClient(msg.Sender())
+	}
+}
+
+func (sh *ShareHandler) HandlePeer(msg *PeerMessageWrapper) {
+	for _, m := range msg.GetShares() {
+		if m == sh.Name {
+			//Request peer to be connected to!!
+		}
+	}
+}
+
+func (sh *ShareHandler) Handle(msg Message) {
+	switch msg.(type) {
+	case *PeerMessageWrapper:
+		sh.HandlePeer(msg.(*PeerMessageWrapper))
+
+	case *ShareMessageWrapper:
+		sh.HandleShare(msg.(*ShareMessageWrapper))
+
+	case *FileMessageWrapper:
+		sh.HandleFile(msg.(*FileMessageWrapper))
+
+	default:
+		panic("Invalid message type!!")
+	}
 }
 
 func (sh *ShareHandler) CheckHash(name string, hash []byte) bool {

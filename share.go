@@ -6,16 +6,19 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"fsnotify"
-	"sync"
+
 	"io"
 	"io/ioutil"
 	"os"
 	"path"
+	"sync"
 )
 
-//Can't import it normally because it's only used for driver
-import _ "github.com/gwenn/gosqlite"
+//External imports
+import (
+	"github.com/go-fsnotify/fsnotify"
+	_ "github.com/gwenn/gosqlite"
+)
 
 type Share struct {
 	Name    string
@@ -49,8 +52,6 @@ func NewShare(name, path string) (s *Share, err error) {
 
 	s = &Share{name, make(map[string]*Client), path, wat, db, &sync.Mutex{}}
 
-	s.Watch(path)
-
 	return
 }
 
@@ -58,12 +59,12 @@ func (s *Share) AddClient(client *Client) {
 	s.clientMutex.Lock()
 	defer s.clientMutex.Unlock()
 
-	_, contains := s.Clients[client.Name]
+	_, contains := s.Clients[client.Name()]
 
 	if !contains {
-		s.Clients[client.Name] = client
+		s.Clients[client.Name()] = client
 	} else {
-		LogObj.Println("Tried to add already connected client ", client.Name)
+		LogObj.Println("Tried to add already connected client ", client.Name())
 	}
 }
 
@@ -71,12 +72,13 @@ func (s *Share) RemoveClient(client *Client) {
 	s.clientMutex.Lock()
 	defer s.clientMutex.Unlock()
 
-	_, contains := s.Clients[client.Name]
+	_, contains := s.Clients[client.Name()]
 
 	if !contains {
-		LogObj.Println("Unregistered client for share tried to disconnect ", client.Name)
+		LogObj.Println("Unregistered client for share tried to disconnect ",
+			client.Name())
 	} else {
-		delete(s.Clients, client.Name)
+		delete(s.Clients, client.Name())
 	}
 }
 
@@ -138,6 +140,10 @@ func (s *Share) WriteChunk(file string, partnum int64, part []byte) (err error) 
 		return err
 	}
 
+	s.Watcher.Remove(file)
+
+	defer s.Watch(file)
+
 	if int64(len(part)) != FileChunkSize {
 		LogObj.Println("Invalid chunk size ", len(part), " in ", file, ". Last chunk?")
 	}
@@ -193,7 +199,10 @@ func (s *Share) Remove(object string) {
 
 func (s *Share) FromOffline(dir string) error {
 	if len(dir) == 0 {
+		defer s.Watch(s.Path)
+
 		dirinfo, err := os.Stat(s.Path)
+
 		if dirinfo.IsDir() && err == nil {
 			s.FromOffline(s.Path)
 		} else {
@@ -270,15 +279,21 @@ func (s *Share) CheckFileDeep(path string) (modified bool, err error) {
 
 	modified = (bytes.Compare(currentHash, lastHash) == 0)
 
+	if modified {
+		//TODO: Write modification into database
+	}
+
 	return
 }
 
 func (s *Share) StoredModTime(path string) (mtime int64, err error) {
 	//TODO: Retrieve stored info from database
+
 	return
 }
 
 func (s *Share) StoredHash(path string) (hash []byte, err error) {
+	//TODO: Retrieve stored hash from database
 	return
 }
 
