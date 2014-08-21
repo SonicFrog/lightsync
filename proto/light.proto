@@ -33,9 +33,10 @@ message PeerMessage {
 
 message FileMessage {
     required string filename = 1;
-    required bool folder = 2;
-    required FileAction action = 3;
+    required string share_name = 2;
+    required bool folder = 3;
+    required FileAction action = 4;
 
-    optional bytes hash = 4;
+    optional bytes hash = 5;
 
 }

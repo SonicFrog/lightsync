@@ -55,6 +55,11 @@ func (sh *ShareHandler) HandleLocal() {
 }
 
 func (sh *ShareHandler) HandleFile(msg *FileMessageWrapper)  {
+	if msg.GetShareName() != sh.Name {
+		LogObj.Println("Ignoring message meant for share", msg.GetShareName())
+		return
+	}
+
 	switch msg.GetAction() {
 	case light.FileAction_REMOVED:
 		sh.Remove(msg.GetFilename())
@@ -76,6 +81,11 @@ func (sh *ShareHandler) HandleFile(msg *FileMessageWrapper)  {
 }
 
 func (sh *ShareHandler) HandleShare(msg *ShareMessageWrapper) {
+	if msg.GetShareName() != sh.Name {
+		LogObj.Println("Ignoring message meant for share", msg.GetShareName())
+		return
+	}
+
 	switch msg.GetAction() {
 	case light.ShareAction_LEAVING:
 		sh.RemoveClient(msg.Sender())
