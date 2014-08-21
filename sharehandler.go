@@ -6,33 +6,27 @@ import (
 
 type ShareHandler struct {
 	Share
-	RequestChannel chan Message
-	ControlChannel chan int
-	isActive       bool
+	requestChannel chan Message
+	controlChannel chan int
 }
 
 func NewShareHandler(share Share, out chan Message) (sh *ShareHandler) {
 	sh = &ShareHandler{
 		Share:          share,
-		RequestChannel: out,
-		isActive:       true,
-		ControlChannel: make(chan int),
+		requestChannel: out,
+		controlChannel: make(chan int),
 	}
 
-	go sh.HandleLocal()
+	go sh.handleLocal()
 
 	return
 }
 
-func (sh *ShareHandler) Active() bool {
-	return sh.isActive
-}
-
 func (sh *ShareHandler) HandOver(msg Message) {
-	sh.RequestChannel <- msg
+	sh.requestChannel <- msg
 }
 
-func (sh *ShareHandler) HandleLocal() {
+func (sh *ShareHandler) handleLocal() {
 	defer sh.Share.Watcher.Close()
 
 	for {
@@ -46,15 +40,18 @@ func (sh *ShareHandler) HandleLocal() {
 			//Error
 			LogObj.Println("error: ", err)
 
-		case <-sh.ControlChannel:
+		case <-sh.controlChannel:
 			LogObj.Println("ShareHandler ", sh.Name, " stopping!")
-			break
-		}
+			return
 
+		case msg := <-sh.requestChannel:
+			LogObj.Println("Handling message")
+			sh.Handle(msg)
+		}
 	}
 }
 
-func (sh *ShareHandler) HandleFile(msg *FileMessageWrapper)  {
+func (sh *ShareHandler) HandleFile(msg *FileMessageWrapper) {
 	if msg.GetShareName() != sh.Name {
 		LogObj.Println("Ignoring message meant for share", msg.GetShareName())
 		return
@@ -70,7 +67,6 @@ func (sh *ShareHandler) HandleFile(msg *FileMessageWrapper)  {
 		} else {
 			sh.CreateFile(msg.GetFilename())
 		}
-
 
 	case light.FileAction_UPDATED:
 		sh.CheckHash(msg.GetFilename(), msg.GetHash())
@@ -124,5 +120,5 @@ func (sh *ShareHandler) CheckHash(name string, hash []byte) bool {
 }
 
 func (sh *ShareHandler) Stop() {
-	sh.isActive = false
+	sh.controlChannel <- 0
 }
