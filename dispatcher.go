@@ -16,17 +16,24 @@ type Dispatcher interface {
 }
 
 type DefaultDispatcher struct {
-	ctrl     chan int "Control channel: posting to this channel stops the dispatcher"
+	ctrl  chan int
+	input chan Message
+
 	handlers map[string]MessageHandler
 }
 
-func (d *DefaultDispatcher) StartDispatcher() chan<- Message {
-	input := make(chan Message)
-	d.ctrl = make(chan int)
+func NewDispatcher() (d *DefaultDispatcher) {
+	d = &DefaultDispatcher{
+		input: make(chan Message, 10),
+		ctrl:  make(chan int),
+		handlers: make(map[string]MessageHandler),
+	}
 
-	go d.dispatchRoutine(input)
+	return
+}
 
-	return input
+func (d *DefaultDispatcher) StartDispatcher() {
+	go d.dispatchRoutine(d.input)
 }
 
 func (d *DefaultDispatcher) StopDispatch() {
@@ -46,6 +53,7 @@ func (d *DefaultDispatcher) RegisterHandler(name string, handler MessageHandler)
 	}
 
 	d.handlers[name] = handler
+
 	return nil
 }
 
