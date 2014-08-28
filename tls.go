@@ -29,11 +29,12 @@ const (
 
 type ClientAccepter interface {
 	AcceptConnection(conn net.Conn) error
-	AuthorizeClient(client Client, clientAdder func(c *Client)) error
+	AuthorizeClient(client Client) error
 }
 
 type TLSClientAccepter struct {
-	listener net.Listener
+	net.Listener
+	clientAdder func(*Client)
 }
 
 func DefaultTLSConfig() (cfg *tls.Config, err error) {
@@ -60,9 +61,10 @@ func TLSConfig(certpath, keypath string) (cfg *tls.Config, err error) {
 	}
 
 	cfg = &tls.Config{
-		Rand:         rand.Reader,
-		Certificates: []tls.Certificate{cert},
-		ClientAuth:   tls.RequireAnyClientCert,
+		InsecureSkipVerify: true,
+		Rand:               rand.Reader,
+		Certificates:       []tls.Certificate{cert},
+		ClientAuth:         tls.RequireAnyClientCert,
 	}
 
 	return
@@ -76,30 +78,41 @@ func KeyFingerprint(pub *rsa.PublicKey) (fp string) {
 	return
 }
 
-func TLSListener(config *tls.Config, accepter *ClientAccepter) (err error) {
-	ln, err := tls.Listen("tcp", "localhost:12000", config)
+func NewTLSClientAccepter(config *tls.Config, accepter ClientAccepter,
+	clientAdder func (*Client)) (ln net.Listener, err error) {
+
+	lst, err := tls.Listen("tcp", "localhost:12000", config)
 
 	if err != nil {
 		return
 	}
 
-	for {
-		var conn net.Conn
-
-		conn, err = ln.Accept()
-
-		if err != nil {
-			LogObj.Println("Could not accept connection: ", err)
-			return
-		}
-
-		go TLSClientAcceptor(conn)
+	ln = &TLSClientAccepter{
+		Listener: lst,
+		clientAdder: clientAdder,
 	}
 
 	return
 }
 
-func TLSClientAcceptor(conn net.Conn) (err error) {
+func (t *TLSClientAccepter) acceptLoop(ln net.Listener) {
+	var conn net.Conn
+	var err error
+
+	for {
+		conn, err = ln.Accept()
+
+		if err != nil {
+			LogObj.Println("Could not accept connection: ", err)
+			LogObj.Println("Stopping listener!")
+			return
+		}
+
+		go t.AcceptConnection(conn)
+	}
+}
+
+func (t *TLSClientAccepter) AcceptConnection(conn net.Conn) {
 	tlscon, ok := conn.(*tls.Conn)
 
 	if !ok {
@@ -114,28 +127,29 @@ func TLSClientAcceptor(conn net.Conn) (err error) {
 
 	if !ok {
 		LogObj.Println("Peer at", conn.RemoteAddr(), "is not using RSA")
-		return errors.New("Peer not using RSA!")
+		return
 	}
 
 	LogObj.Println("Connection from peer", KeyFingerprint(rsaPeerKey))
 
-	//TODO: Validate peer against authorized public keys fingerprints
+	c := NewClient(KeyFingerprint(rsaPeerKey), conn)
+
+	t.AuthorizeClient(c)
 
 	return
 }
 
-func (t *TLSClientAccepter) AuthorizeClient(client *Client,
-	clientAdder func(*Client)) (err error) {
+func (t *TLSClientAccepter) AuthorizeClient(client *Client) (err error) {
 
 	var accepted bool = false
 
 	defer func() {
 		if accepted {
-			clientAdder(client)
+			t.clientAdder(client)
 		}
 	}()
 
-
+	//Verification of peer must be done here
 
 	return
 }
