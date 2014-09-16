@@ -1,107 +1,107 @@
 package main
 
 import (
-	"errors"
-	"crypto/rsa"
-	"crypto/tls"
+	"io/ioutil"
+	"net/http"
+	"sync"
+	"time"
 )
 
-type PeerFinder interface {
-	FindRoutine() chan<- *PeerInfo
-	ClientOutput() <-chan *Client
+/**
+ * Crappy way to find new peers:
+ * - Each peer should run a http server to share peers with other peers
+ * - HTTP request to /peerfingerprint to get peer address and port
+ **/
+type AnnouncePeerFinder struct {
+	announce  string
+	Peers     chan *PeerInfo "The peer finder outputs PeerInfo in this channel"
+	peerNames map[int]string
+	run       bool
+	mut       sync.Mutex
 }
 
-type PeerInfo struct {
-	address     string
-	port        string
-	fingerprint string
-}
+const (
+	DefaultAnnounceTime    = 5
+	DefaultAnnounceTimeOut = 3
+)
 
-type TLSPeerFinder struct {
-	clientOutput chan *Client
-	infoInput    chan *PeerInfo
-	ctrl         chan int
-	tlsConf      *tls.Config
-}
+func NewPeerFinder(announce string, peers []string) (out *AnnouncePeerFinder) {
+	npeers := make(map[int]string)
 
-func NewTLSPeerFinder(cfg *tls.Config, accept ClientAccepter) (pf PeerFinder, err error) {
-	pf = &TLSPeerFinder{
-		infoInput:    make(chan *PeerInfo, 10),
-		clientOutput: make(chan *Client, 10),
+	for index, peer := range peers {
+		npeers[index] = peer
 	}
+
+	out = &AnnouncePeerFinder{
+		announce:  announce,
+		peerNames: npeers,
+		Peers:     make(chan *PeerInfo, 10),
+		run:       true,
+	}
+
+	go out.internal()
+
 	return
 }
 
-func StartPeerFinder(pf PeerFinder) chan<- *PeerInfo {
-	return pf.FindRoutine()
+//This functions could probably be removed considering we have to re-read config file anyway
+func (pf *AnnouncePeerFinder) AddPeer(fingerprint string) {
+	pf.mut.Lock()
+	defer pf.mut.Unlock()
+
+	for _, peer := range pf.peerNames {
+		if peer == fingerprint {
+			return
+		}
+	}
+
+	pf.peerNames[len(pf.peerNames)] = fingerprint
 }
 
-func (pi *PeerInfo) Address() string {
-	return pi.address
-}
+func (pf *AnnouncePeerFinder) RemovePeer(fingerprint string) {
+	pf.mut.Lock()
 
-func (pi *PeerInfo) Port() string {
-	return pi.port
-}
+	defer pf.mut.Unlock()
 
-func (pi *PeerInfo) Fingerprint() string {
-	return pi.fingerprint
-}
-
-func (pf *TLSPeerFinder) FindRoutine() chan<- *PeerInfo {
-	go pf.internal()
-
-	return pf.infoInput
-}
-
-func (pf *TLSPeerFinder) internal() {
-	for {
-		select {
-		case pi := <-pf.infoInput:
-			client, err := pf.Dial(pi.Address(), pi.Port(), pi.Fingerprint())
-
-			if err != nil {
-				return
-			}
-
-			AddClient(client)
-
-		case <-pf.ctrl:
+	for index, peer := range pf.peerNames {
+		if peer == fingerprint {
+			delete(pf.peerNames, index)
 			return
 		}
 	}
 }
 
-func (pf *TLSPeerFinder) Stop() {
-	pf.ctrl <- 0
+func (pf *AnnouncePeerFinder) internal() {
+	client := &http.Client{
+		Timeout: DefaultAnnounceTimeOut * time.Second,
+	}
+
+	defer close(pf.Peers)
+
+	for pf.run {
+		for _, name := range pf.peerNames {
+			resp, err := client.Get(pf.announce + "/" + name)
+
+			if err != nil {
+				LogObj.Println("PeerFinder:", err)
+				continue
+			}
+
+			data, err := ioutil.ReadAll(resp.Body)
+
+			if err != nil {
+				LogObj.Println("PeerFinder:", err)
+				continue
+			}
+
+			addr := string(data)
+
+			LogObj.Println("Found peer at " + addr)
+		}
+		time.Sleep(DefaultAnnounceTime * time.Second)
+	}
 }
 
-func (pf *TLSPeerFinder) Dial(address, port, fingerprint string) (c *Client, err error) {
-	conn, err := tls.Dial("tcp", address+":"+port, pf.tlsConf)
-
-	if err != nil {
-		return
-	}
-
-	state := conn.ConnectionState()
-
-	peerKey, ok := state.PeerCertificates[0].PublicKey.(rsa.PublicKey)
-
-	if !ok {
-		err = errors.New("Remote peer " + conn.RemoteAddr().String() +" not using RSA")
-		return
-	}
-
-	if fingerprint != KeyFingerprint(&peerKey) {
-		err = errors.New(conn.RemoteAddr().String() + " not using advertised key!")
-		LogObj.Println(err)
-	}
-
-	c = NewClient(fingerprint, conn, &peerKey)
-
-	return
-}
-
-func (pf *TLSPeerFinder) ClientOutput() <-chan *Client {
-	return pf.clientOutput
+func (pf *AnnouncePeerFinder) Stop() {
+	pf.run = false
 }
