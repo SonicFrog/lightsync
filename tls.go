@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha1"
@@ -34,7 +35,7 @@ type ClientAccepter interface {
 
 type TLSClientAccepter struct {
 	net.Listener
-	clientAdder func(*Client)
+	clientAdder func(Client)
 }
 
 func DefaultTLSConfig() (cfg *tls.Config, err error) {
@@ -70,16 +71,21 @@ func TLSConfig(certpath, keypath string) (cfg *tls.Config, err error) {
 	return
 }
 
-func KeyFingerprint(pub *rsa.PublicKey) (fp string) {
-	hash := sha1.Sum(pub.N.Bytes())
+func KeyFingerprint(pub crypto.PublicKey) (fp string) {
+	switch pub.(type) {
+	case rsa.PublicKey:
+		hash := sha1.Sum(pub.(rsa.PublicKey).N.Bytes())
+		fp = hex.EncodeToString(hash[:])
 
-	fp = hex.EncodeToString(hash[:])
+	default:
+		panic("Invalid public key type!")
+	}
 
 	return
 }
 
 func NewTLSClientAccepter(config *tls.Config, accepter ClientAccepter,
-	clientAdder func (*Client)) (ln net.Listener, err error) {
+	clientAdder func(Client)) (ln net.Listener, err error) {
 
 	lst, err := tls.Listen("tcp", "localhost:12000", config)
 
@@ -88,7 +94,7 @@ func NewTLSClientAccepter(config *tls.Config, accepter ClientAccepter,
 	}
 
 	ln = &TLSClientAccepter{
-		Listener: lst,
+		Listener:    lst,
 		clientAdder: clientAdder,
 	}
 
@@ -139,7 +145,7 @@ func (t *TLSClientAccepter) AcceptConnection(conn net.Conn) {
 	return
 }
 
-func (t *TLSClientAccepter) AuthorizeClient(client *Client) (err error) {
+func (t *TLSClientAccepter) AuthorizeClient(client Client) (err error) {
 
 	var accepted bool = false
 

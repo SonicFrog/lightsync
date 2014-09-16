@@ -157,9 +157,10 @@ func (m *PeerMessage) GetShares() []string {
 
 type FileMessage struct {
 	Filename         *string     `protobuf:"bytes,1,req,name=filename" json:"filename,omitempty"`
-	Folder           *bool       `protobuf:"varint,2,req,name=folder" json:"folder,omitempty"`
-	Action           *FileAction `protobuf:"varint,3,req,name=action,enum=light.FileAction" json:"action,omitempty"`
-	Hash             []byte      `protobuf:"bytes,4,opt,name=hash" json:"hash,omitempty"`
+	ShareName        *string     `protobuf:"bytes,2,req,name=share_name" json:"share_name,omitempty"`
+	Folder           *bool       `protobuf:"varint,3,req,name=folder" json:"folder,omitempty"`
+	Action           *FileAction `protobuf:"varint,4,req,name=action,enum=light.FileAction" json:"action,omitempty"`
+	Hash             []byte      `protobuf:"bytes,5,opt,name=hash" json:"hash,omitempty"`
 	XXX_unrecognized []byte      `json:"-"`
 }
 
@@ -170,6 +171,13 @@ func (*FileMessage) ProtoMessage()    {}
 func (m *FileMessage) GetFilename() string {
 	if m != nil && m.Filename != nil {
 		return *m.Filename
+	}
+	return ""
+}
+
+func (m *FileMessage) GetShareName() string {
+	if m != nil && m.ShareName != nil {
+		return *m.ShareName
 	}
 	return ""
 }

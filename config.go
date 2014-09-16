@@ -6,10 +6,10 @@ import (
 )
 
 const (
-	DefaultConfigFile string = "/home/ars3nic/.config/lightsync.json"
+	DefaultConfigFile string = "$HOME/.config/lightsync.json"
 )
 
-type JSONConfiguration struct {
+type Configuration struct {
 	nodeName string
 	keyPath  string
 	certPath string
@@ -34,10 +34,10 @@ type ConfigurationObject interface {
 	KeyPath() string
 }
 
-func NewJSONConfiguration(filepath string) (c *JSONConfiguration, err error) {
+func NewJSONConfiguration(filepath string) (c *Configuration, err error) {
 	LogObj.Println("Initializing config...")
 
-	jfile, err := os.Open(DefaultConfigFile)
+	jfile, err := os.Open(filepath)
 
 	if err != nil {
 		LogObj.Println("Unable to open config file:", err)
@@ -60,14 +60,14 @@ func NewJSONConfiguration(filepath string) (c *JSONConfiguration, err error) {
 	return
 }
 
-func (c *JSONConfiguration) CertPath() string {
+func (c *Configuration) CertPath() string {
 	return c.certPath
 }
 
-func (c *JSONConfiguration) KeyPath() string {
+func (c *Configuration) KeyPath() string {
 	return c.keyPath
 }
 
-func (c *JSONConfiguration) NodeName() string {
+func (c *Configuration) NodeName() string {
 	return c.nodeName
 }

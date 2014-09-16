@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"code.google.com/p/goprotobuf/proto"
 	"encoding/binary"
 	"io"
@@ -14,8 +15,8 @@ const (
 )
 
 type Message interface {
-	SetSender(client *Client)
-	Sender() *Client
+	SetSender(client Client)
+	Sender() Client
 	WriteTo(writer io.Writer) error
 }
 
@@ -24,7 +25,8 @@ type MessageHandler interface {
 }
 
 type MessageWrapper struct {
-	sender *Client
+	op     byte
+	sender Client
 }
 
 type FileMessageWrapper struct {
@@ -42,11 +44,11 @@ type ShareMessageWrapper struct {
 	*light.ShareMessage
 }
 
-func (w *MessageWrapper) SetSender(sender *Client) {
-
+func (w *MessageWrapper) SetSender(sender Client) {
+	w.sender = sender
 }
 
-func (w *MessageWrapper) Sender() (c *Client) {
+func (w *MessageWrapper) Sender() (c Client) {
 	return w.sender
 }
 
@@ -63,7 +65,21 @@ func (w *FileMessageWrapper) WriteTo(writer io.Writer) (err error) {
 }
 
 func (w *PeerMessageWrapper) WriteTo(writer io.Writer) (err error) {
+	var t byte = PeerMessageOP
 	data, err := proto.Marshal(w)
+	n := len(data)
+
+	if err != nil {
+		return
+	}
+
+	err = binary.Write(writer, binary.BigEndian, n)
+
+	if err != nil {
+		return
+	}
+
+	err = binary.Write(writer, binary.BigEndian, t)
 
 	if err != nil {
 		return
@@ -115,20 +131,20 @@ func ReadMessage(reader io.Reader) (msg Message, err error) {
 	case FileMessageOP:
 		pb := &light.FileMessage{}
 		err = proto.Unmarshal(data, pb)
-		msg = &FileMessageWrapper{MessageWrapper{nil}, pb}
+		msg = &FileMessageWrapper{MessageWrapper{FileMessageOP, nil}, pb}
 
 	case ShareMessageOP:
 		pb := &light.ShareMessage{}
 		err = proto.Unmarshal(data, pb)
-		msg = &ShareMessageWrapper{MessageWrapper{nil}, pb}
+		msg = &ShareMessageWrapper{MessageWrapper{ShareMessageOP, nil}, pb}
 
 	case PeerMessageOP:
 		pb := &light.PeerMessage{}
 		err = proto.Unmarshal(data, pb)
-		msg = &PeerMessageWrapper{MessageWrapper{nil}, pb}
+		msg = &PeerMessageWrapper{MessageWrapper{PeerMessageOP, nil}, pb}
 
 	default:
-		panic("Invalid message type received!" + string(mtype))
+		return nil, errors.New("Invalid message type received!" + string(mtype))
 	}
 
 	return

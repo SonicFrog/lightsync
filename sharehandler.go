@@ -27,16 +27,14 @@ func (sh *ShareHandler) HandOver(msg Message) {
 }
 
 func (sh *ShareHandler) handleLocal() {
-	defer sh.Share.Watcher.Close()
-
 	for {
 		select {
-		case evt := <-sh.Events():
+		case evt := <-sh.Watcher.Events:
 			//Event
 			LogObj.Println("event: ", evt)
 			break
 
-		case err := <-sh.Errors():
+		case err := <-sh.Watcher.Errors:
 			//Error
 			LogObj.Println("error: ", err)
 
@@ -91,19 +89,8 @@ func (sh *ShareHandler) HandleShare(msg *ShareMessageWrapper) {
 	}
 }
 
-func (sh *ShareHandler) HandlePeer(msg *PeerMessageWrapper) {
-	for _, m := range msg.GetShares() {
-		if m == sh.Name {
-			//Request peer to be connected to!!
-		}
-	}
-}
-
 func (sh *ShareHandler) Handle(msg Message) {
 	switch msg.(type) {
-	case *PeerMessageWrapper:
-		sh.HandlePeer(msg.(*PeerMessageWrapper))
-
 	case *ShareMessageWrapper:
 		sh.HandleShare(msg.(*ShareMessageWrapper))
 
@@ -111,7 +98,7 @@ func (sh *ShareHandler) Handle(msg Message) {
 		sh.HandleFile(msg.(*FileMessageWrapper))
 
 	default:
-		panic("Invalid message type!!")
+		LogObj.Println("Ignored a message")
 	}
 }
 

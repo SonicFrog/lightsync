@@ -8,7 +8,7 @@ import (
  * Interface type to structs that can dispatch message
  **/
 type Dispatcher interface {
-	StartDispatch(chan<- Message, chan<- int)
+	StartDispatch()
 	StopDispatch()
 
 	RegisterHandler(name string, handler MessageHandler) error
@@ -17,22 +17,22 @@ type Dispatcher interface {
 
 type DefaultDispatcher struct {
 	ctrl  chan int
-	input chan Message
+	input <-chan Message
 
 	handlers map[string]MessageHandler
 }
 
-func NewDispatcher() (d *DefaultDispatcher) {
+func NewDispatcher(input <-chan Message, ctrl chan int) (d *DefaultDispatcher) {
 	d = &DefaultDispatcher{
-		input: make(chan Message, 10),
-		ctrl:  make(chan int),
+		input: input,
+		ctrl:  ctrl,
 		handlers: make(map[string]MessageHandler),
 	}
 
 	return
 }
 
-func (d *DefaultDispatcher) StartDispatcher() {
+func (d *DefaultDispatcher) StartDispatch() {
 	go d.dispatchRoutine(d.input)
 }
 
