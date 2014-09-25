@@ -22,7 +22,7 @@ import (
 
 type Share struct {
 	Name    string
-	Clients map[string]Client
+	Clients map[string]*Client
 	Path    string
 	Watcher *fsnotify.Watcher
 
@@ -36,6 +36,7 @@ const (
 )
 
 func NewShare(name, path string) (s *Share, err error) {
+
 	wat, err := fsnotify.NewWatcher()
 
 	if err != nil {
@@ -49,12 +50,12 @@ func NewShare(name, path string) (s *Share, err error) {
 		return
 	}
 
-	s = &Share{name, make(map[string]Client), path, wat, db, &sync.Mutex{}}
+	s = &Share{name, make(map[string]*Client), path, wat, db, &sync.Mutex{}}
 
 	return
 }
 
-func (s *Share) AddClient(client Client) {
+func (s *Share) AddClient(client *Client) {
 	s.clientMutex.Lock()
 	defer s.clientMutex.Unlock()
 
@@ -67,7 +68,7 @@ func (s *Share) AddClient(client Client) {
 	}
 }
 
-func (s *Share) RemoveClient(client Client) {
+func (s *Share) RemoveClient(client *Client) {
 	s.clientMutex.Lock()
 	defer s.clientMutex.Unlock()
 
@@ -294,6 +295,18 @@ func (s *Share) StoredModTime(path string) (mtime int64, err error) {
 func (s *Share) StoredHash(path string) (hash []byte, err error) {
 	//TODO: Retrieve stored hash from database
 	return
+}
+
+func (s *Share) Events() chan fsnotify.Event {
+	return s.Watcher.Events
+}
+
+func (s *Share) Errors() chan error {
+	return s.Watcher.Errors
+}
+
+func (s *Share) Close() {
+	s.Watcher.Close()
 }
 
 func (s *Share) Watch(dir string) error {

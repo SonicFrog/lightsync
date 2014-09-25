@@ -12,7 +12,7 @@ type PeerInfo struct {
 }
 
 type TLSPeerConnector struct {
-	clients  <-chan Client
+	clients  <-chan *Client
 	info     chan<- *PeerInfo
 	ctrl     chan int "Control channel used to stop the peer finder"
 	accepter ClientAccepter
@@ -25,7 +25,7 @@ type PeerConnector interface {
 }
 
 func NewTLSPeerConnector(cfg *tls.Config, accept ClientAccepter) (*TLSPeerConnector, error) {
-	info, clients := make(chan *PeerInfo, 10), make(chan Client, 10)
+	info, clients := make(chan *PeerInfo, 10), make(chan *Client, 10)
 
 	pf := &TLSPeerConnector{
 		info:     info,
@@ -52,7 +52,7 @@ func (pi *PeerInfo) Fingerprint() string {
 	return pi.fingerprint
 }
 
-func (pf *TLSPeerConnector) internal(info <-chan *PeerInfo, clients chan<- Client) {
+func (pf *TLSPeerConnector) internal(info <-chan *PeerInfo, clients chan<- *Client) {
 	for {
 		select {
 		case pi := <- info:
@@ -70,7 +70,7 @@ func (pf *TLSPeerConnector) internal(info <-chan *PeerInfo, clients chan<- Clien
 	}
 }
 
-func (cn *TLSPeerConnector) Clients() <-chan Client {
+func (cn *TLSPeerConnector) Clients() <-chan *Client {
 	return cn.clients
 }
 
@@ -82,7 +82,7 @@ func (pf *TLSPeerConnector) Stop() {
 	pf.ctrl <- 0
 }
 
-func (pf *TLSPeerConnector) dial(address, port, fingerprint string) (c Client, err error) {
+func (pf *TLSPeerConnector) dial(address, port, fingerprint string) (c *Client, err error) {
 	conn, err := tls.Dial("tcp", address+":"+port, pf.tlsConf)
 
 	if err != nil {
@@ -91,7 +91,7 @@ func (pf *TLSPeerConnector) dial(address, port, fingerprint string) (c Client, e
 
 	c = NewClient(fingerprint, conn)
 
-	k := c.Key()
+	k, err := c.Key()
 
 	if err != nil {
 		LogObj.Println(err)
